@@ -1,0 +1,26 @@
+[project]
+name = "readme-backend"
+version = "0.1.0"
+description = "ReadMe Local Backend API - FastAPI service for document parsing and TTS"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.12",
+    "PyMuPDF>=1.24.13",
+    "pdfplumber>=0.11.4",
+    "ebooklib>=0.18",
+    "docx2txt>=0.8",
+    "sqlalchemy>=2.0.35",
+    "alembic>=1.13.3",
+    "pydantic>=2.9.2",
+    "pydantic-settings>=2.6.0",
+    "python-dateutil>=2.9.0",
+    "PyYAML>=6.0.2",
+    "python-dotenv>=1.0.1",
+    "httpx>=0.27.2",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

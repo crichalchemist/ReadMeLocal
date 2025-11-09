@@ -8,6 +8,7 @@ PyMuPDF==1.24.13
 pdfplumber==0.11.4
 ebooklib==0.18
 docx2txt==0.8
+beautifulsoup4==4.12.3
 
 # Database
 sqlalchemy==2.0.35

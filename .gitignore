@@ -101,3 +101,4 @@ temp/
 *.rpm
 *.exe
 *.msi
+!/PRD_ “ReadMe” — Local AI Reading Assistant.pdf

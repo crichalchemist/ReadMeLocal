@@ -39,12 +39,28 @@ auto_clear_cache: false
 database_path: "./db/readme.db"
 
 # Playback Settings
-default_playback_speed: 1.0
 default_volume: 0.8
+
+# Adaptive playback settings
+playback:
+  start_speed: 1.5
+  speed_increment: 0.1
+  increment_interval_minutes: 15
+  max_speed: 2.5
+
+# Session behavior (Phase 8: single-book lock)
+session:
+  single_book_mode: true
+  auto_finish_threshold: 0.95  # 95% completion unlocks automatically (future use)
 
 # UI Settings
 theme: "light"  # "light" or "dark"
 sidebar_width: 300
+
+ui:
+  theme: "minimal"
+  highlight_style: "sentence"
+  auto_scroll: true
 
 # API Settings
 local_api_port: 5000
@@ -56,4 +72,14 @@ features:
   local_tts: false  # Set to true when Coqui-TTS is installed
   annotations: true
   bookmarks: true
-  export_audio: false  # Coming in Phase 5
+  export_audio: false  # Planned (not implemented)
+
+
+# Phase 3: Content Filtering Settings
+content_filtering:
+  skip_frontmatter: true
+  skip_page_numbers: true
+  skip_footnotes: true
+  skip_headers_footers: true
+  frontmatter_skip_percent: 0.05  # Fallback: skip first 5% if no chapter markers
+  repeat_threshold: 3  # Lines appearing more than this are considered headers/footers

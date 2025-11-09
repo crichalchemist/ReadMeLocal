@@ -4,14 +4,14 @@ A self-hosted desktop application that converts digital books and documents into
 
 ## 🎯 Features
 
-- **Multi-Format Support**: Open `.pdf`, `.epub`, `.txt`, and `.docx` files
-- **AI Text-to-Speech**: Natural-sounding voices powered by OpenAI TTS
-- **Smart Playback**: Play, pause, seek, adjust speed, and navigate by paragraph
-- **Library Management**: Track reading progress across all your books
-- **Bookmarks & Notes**: Save annotations and highlights locally
-- **AI Summarization**: Get intelligent summaries of chapters or selections
-- **Privacy-First**: Local-first architecture with optional cloud compute
-- **Offline Mode**: Full functionality offline (except AI features)
+- **File Format Support**: `.txt`, `.md`, `.pdf`, `.epub`, `.docx` files
+- **Smart Content Filtering**: skips frontmatter, page numbers, footnotes, and repeated headers/footers
+- **Sentence-level Parsing**: content stored as sentences for precise highlighting
+- **Text-Audio Synchronization**: real-time sentence highlighting during playback (Phase 7)
+- **Adaptive Speed**: automatically increases reading speed over time (1.5× → 2.5×)
+- **Basic Playback State API**: track position and speed locally
+- **Privacy-first**: local-first architecture; optional cloud compute (Heroku) for AI features
+- **Offline Mode**: fully functional for local parsing and reading; cloud AI features are optional
 
 ## 🏗️ Architecture
 
@@ -28,17 +28,17 @@ A self-hosted desktop application that converts digital books and documents into
 
 ### Components
 
-- **Frontend**: Electron + React + TailwindCSS
-- **Backend**: FastAPI (Python) running on localhost:5000
-- **Database**: SQLite for local data storage
-- **Parsers**: PyMuPDF, pdfplumber, ebooklib, docx2txt
-- **Cloud** (Optional): Heroku for AI workloads
+- Frontend: Electron + React (minimal UI; Phase 4 completed)
+- Backend: FastAPI (Python) on localhost:5000 (v0.3.0)
+- Database: SQLite (single-book state)
+- Parsing: `.txt`/`.md` supported now; PDF/EPUB/DOCX planned
+- Cloud (Optional): Separate Heroku service (see readme-cloud repo)
 
 ## 📋 Prerequisites
 
 - **Python 3.11+** with pip
 - **Node.js 18+** with npm
-- **OpenAI API Key** (for TTS and summarization)
+- **OpenAI API Key** (optional; required for cloud TTS/summarization)
 
 ## 🚀 Quick Start
 
@@ -83,14 +83,7 @@ cp config/secrets.env.template config/secrets.env
 
 ### 5. Run the Application
 
-**Terminal 1 - Backend:**
-```bash
-cd backend
-source venv/bin/activate
-python main.py
-```
-
-**Terminal 2 - Frontend:**
+Start the app (Electron will auto-start the Python backend):
 ```bash
 cd frontend
 npm run electron-dev
@@ -105,31 +98,32 @@ The app will automatically:
 
 ```
 ReadMeLocal/
-├── frontend/                  # Electron + React app
-│   ├── electron/             # Electron main process
+├── backend/                  # Python FastAPI server (local)
+│   ├── main.py              # Entry point (v0.3.0)
+│   ├── requirements.txt
+│   └── pyproject.toml
+├── frontend/                 # Electron + React app
+│   ├── electron/
 │   │   ├── main.js          # Window management & IPC
 │   │   └── preload.js       # Security bridge
-│   ├── src/                 # React source
-│   │   ├── components/      # UI components
-│   │   ├── pages/           # Page components
-│   │   └── store/           # State management
+│   ├── public/
+│   │   └── index.html
+│   ├── src/
+│   │   ├── App.js
+│   │   └── index.js
 │   └── package.json
-├── backend/                  # Python FastAPI server
-│   ├── main.py              # Entry point
-│   ├── tts/                 # Text-to-speech engines
-│   ├── parsers/             # Document parsers
-│   └── requirements.txt
-├── cloud/                    # Heroku cloud service
-│   ├── app.py               # Cloud API entry
-│   ├── routers/             # API routes
-│   └── services/            # AI services
-├── db/                       # SQLite database
 ├── config/                   # Configuration files
-│   ├── settings.yaml        # App settings
-│   └── secrets.env          # API keys (git-ignored)
-└── cache/                    # Audio & text cache
-
+│   ├── settings.yaml        # App settings (incl. content_filtering)
+│   └── secrets.env.template # API keys template (copy to secrets.env)
+├── db/                      # SQLite database (runtime)
+├── README.md
+├── revisedplan.md
+├── CHECKPOINT_1.md
+└── .junie/
+    └── guidelines.md
 ```
+
+Note: Cloud backend (Heroku) lives in a separate repository (readme-cloud).
 
 ## 🔧 Development
 
@@ -173,32 +167,35 @@ Once the backend is running, visit:
 
 ## 🗺️ Roadmap
 
-### Phase 1 (MVP) - Current
-- [x] Project setup & directory structure
-- [x] Basic Electron + React app
-- [x] FastAPI backend skeleton
-- [ ] PDF/EPUB parsing
-- [ ] Basic playback controls
-- [ ] Cloud TTS integration
+### Phase 1 — Project Setup ✓
+- Project scaffolding, Electron + React shell, FastAPI skeleton
 
-### Phase 2
-- [ ] Voice selector UI
-- [ ] Audio caching system
-- [ ] Library management
+### Phase 2 — Core Backend (Single‑Book) ✓
+- Current book import endpoints (.txt/.md)
+- Playback state (position, speed)
 
-### Phase 3
-- [ ] AI summarization
-- [ ] Local note system
-- [ ] Bookmarks UI
+### Phase 3 — Smart Content Parsing ✓
+- ContentFilter: skip frontmatter, page numbers, footnotes, repeated headers/footers
+- Store content as sentences
+- Backend version bumped to v0.3.0
 
-### Phase 4
-- [ ] Local Coqui-TTS (offline mode)
-- [ ] Performance optimizations
+### Phase 4 — Minimalistic UI ✓
+- Empty state with drop zone and Select File button
+- Reading view with sentence highlighting and auto‑scroll
+- Basic playback controls (play/pause, speed indicator)
 
-### Phase 5
-- [ ] UI polish & themes
-- [ ] Export audiobooks
-- [ ] Keyboard shortcuts
+### Phase 5 — Cloud TTS Integration ✓
+- Heroku service hookup (OpenAI TTS)
+- Local audio caching and streaming endpoint
+
+### Phase 6 — Adaptive Speed ✓
+- Incremental speed adjustments over session (1.5× start; +0.1× every 15 min; capped at 2.5×)
+
+### Phase 7 — Text–Audio Sync ✓
+- Estimate sentence durations and real‑time highlighting
+
+### Phase 8 — Single‑Book Lock
+- Prevent opening a second book until current is closed
 
 ## 🔐 Security
 
@@ -224,6 +221,6 @@ This is a personal project, but suggestions and feedback are welcome! Please ope
 
 ---
 
-**Status**: 🚧 In Development (Phase 1 MVP)
+**Status**: 🚧 In Development (Phase 8 — Single–Book Lock next) · Backend v0.3.0
 
 For detailed technical specifications, see [.junie/guidelines.md](.junie/guidelines.md)

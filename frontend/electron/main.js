@@ -124,18 +124,7 @@ app.on('before-quit', () => {
  * IPC Handlers - Communication bridge between React and Python backend
  */
 
-// Example: Fetch books from backend
-ipcMain.handle('fetch-books', async () => {
-  try {
-    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/books`);
-    return await response.json();
-  } catch (error) {
-    console.error('[IPC] Error fetching books:', error);
-    throw error;
-  }
-});
-
-// Example: Health check
+// Health check
 ipcMain.handle('health-check', async () => {
   try {
     const response = await fetch(`http://localhost:${PYTHON_PORT}/api/health`);

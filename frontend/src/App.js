@@ -16,6 +16,8 @@ function App() {
   const [message, setMessage] = useState('');
   const [voices, setVoices] = useState([]);
   const [selectedVoice, setSelectedVoice] = useState('');
+  const [ttsDefaultMode, setTtsDefaultMode] = useState('cloud');
+  const [downloadUrl, setDownloadUrl] = useState('');
   // Phase 7: Text-audio sync
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
 
@@ -109,9 +111,12 @@ function App() {
       const data = await res.json();
       const vs = Array.isArray(data.voices) ? data.voices.filter(v => v.enabled !== false) : [];
       setVoices(vs);
-      if (!selectedVoice && vs.length) {
-        const preferred = vs.find(v => v.type === 'cloud') || vs[0];
-        setSelectedVoice(preferred?.name || '');
+      const defaultMode = (data.tts_default || 'cloud').toLowerCase();
+      setTtsDefaultMode(defaultMode);
+      if (vs.length) {
+        const preferredType = defaultMode === 'local' ? 'local' : 'cloud';
+        const preferred = vs.find(v => v.type === preferredType) || vs.find(v => v.type === 'local') || vs[0];
+        setSelectedVoice(prev => prev || preferred?.name || '');
       }
     } catch (e) {
       // ignore
@@ -201,7 +206,6 @@ function App() {
       const current = await fetchCurrentBook();
       setMessage('Generating audio...');
       await generateTTSFromCurrent(current?.content || []);
-      setMessage('');
     } catch (e) {
       console.error(e);
       setMessage(`Error: ${e.message || e}`);
@@ -214,29 +218,46 @@ function App() {
       : sentences;
     if (!targetSentences.length) return;
     setTtsLoading(true);
+    setMessage('Generating audio...');
     try {
       const text = (targetSentences.length ? targetSentences.join(' ') : '').slice(0, 8000);
+      const voiceMeta = voices.find(v => v.name === selectedVoice);
+      const resolvedMode = (voiceMeta?.type === 'local'
+        ? 'local'
+        : voiceMeta?.type === 'cloud'
+          ? 'cloud'
+          : ttsDefaultMode) || 'cloud';
       const res = await fetch(`${API_BASE}/api/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, mode: 'cloud', voice: selectedVoice || undefined })
+        body: JSON.stringify({
+          text,
+          voice: selectedVoice || undefined,
+          mode: resolvedMode
+        })
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      const url = `${API_BASE}${data.audio_path}`;
+      const url = data.audio_path ? `${API_BASE}${data.audio_path}` : '';
+      const download = data.download_path ? `${API_BASE}${data.download_path}` : url;
       setAudioSrc(url);
+      setDownloadUrl(download);
+      setMessage('Audio ready — use Download audio to save the file.');
       // Autoplay when ready
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.src = url;
-          audioRef.current.playbackRate = speed || 1.0;
-          audioRef.current.play().catch(() => {});
-          setIsPlaying(true);
-        }
-      }, 200);
+      if (url) {
+        setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.src = url;
+            audioRef.current.playbackRate = speed || 1.0;
+            audioRef.current.play().catch(() => {});
+            setIsPlaying(true);
+          }
+        }, 200);
+      }
     } catch (e) {
       console.error(e);
       setMessage(`TTS Error: ${e.message || e}`);
+      setDownloadUrl('');
     } finally {
       setTtsLoading(false);
     }
@@ -265,6 +286,7 @@ function App() {
       setSentences([]);
       setAudioSrc('');
       setIsPlaying(false);
+      setDownloadUrl('');
     } catch (e) {
       // ignore
     }
@@ -382,11 +404,20 @@ function App() {
                     </select>
                   </label>
                   <button onClick={generateTTSFromCurrent} disabled={!sentences.length || ttsLoading} className="px-3 py-1.5 bg-gray-900 text-white rounded disabled:opacity-50">Generate TTS</button>
+                  {downloadUrl && (
+                    <a
+                      href={downloadUrl}
+                      download
+                      className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700"
+                    >
+                      Download audio
+                    </a>
+                  )}
                   <span className="text-sm text-gray-500">Speed: {speed.toFixed(2)}×</span>
                 </div>
-                {message && <div className="mt-2 text-sm text-gray-600">{message}</div>}
-                <input type="file" accept=".txt,.md,.pdf,.epub,.docx" ref={fileInputRef} onChange={onFileChange} className="hidden" />
-              </div>
+            {message && <div className="mt-2 text-sm text-gray-600">{message}</div>}
+            <input type="file" accept=".txt,.md,.pdf,.epub,.docx" ref={fileInputRef} onChange={onFileChange} className="hidden" />
+          </div>
             </div>
           </div>
         </main>

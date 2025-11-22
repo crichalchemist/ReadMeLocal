@@ -10,14 +10,29 @@ A self-hosted desktop application that converts digital books and documents into
 - **Text-Audio Synchronization**: real-time sentence highlighting during playback (Phase 7)
 - **Adaptive Speed**: automatically increases reading speed over time (1.5× → 2.5×)
 - **Basic Playback State API**: track position and speed locally
-- **Privacy-first**: local-first architecture; optional cloud compute (Heroku) for AI features
-- **Offline Mode**: fully functional for local parsing and reading; cloud AI features are optional
+- **Privacy-first**: local-first architecture with optional Heroku/OpenAI fallback
+- **Offline Mode**: fully functional with Coqui TTS on the SSH box—no API calls required
+- **Downloadable Audio**: each synthesis job exposes a direct WAV/MP3 download link
+
+## 📚 Table of Contents
+
+1. [Architecture](#-architecture)
+2. [Prerequisites](#-prerequisites)
+3. [Quick Start](#-quick-start)
+4. [Local vs Cloud TTS](#-local-tts-coqui)
+5. [Project Structure](#-project-structure)
+6. [Development](#-development)
+7. [Roadmap](#-roadmap)
+8. [Security](#-security)
+9. [Contributing](#-contributing)
+10. [License](#-license)
+11. [Acknowledgments](#-acknowledgments)
 
 ## 🏗️ Architecture
 
 ```
 ┌───────────────┐     ┌──────────────┐     ┌─────────────┐
-│ Electron UI   │────►│ Local FastAPI│────►│ Heroku Cloud│
+│ Electron UI   │────►│ Local FastAPI│────►│   Cloud     │
 │ (React)       │     │ (Python)     │     │ (Optional)  │
 └───────────────┘     └──────────────┘     └─────────────┘
         ▲                     │                     │
@@ -32,7 +47,7 @@ A self-hosted desktop application that converts digital books and documents into
 - Backend: FastAPI (Python) on localhost:5000 (v0.3.0)
 - Database: SQLite (single-book state)
 - Parsing: `.txt`/`.md` supported now; PDF/EPUB/DOCX planned
-- Cloud (Optional): Separate Heroku service (see readme-cloud repo)
+- Cloud (Optional): Separate service (see readme-cloud repo)
 
 ## 📋 Prerequisites
 
@@ -45,7 +60,7 @@ A self-hosted desktop application that converts digital books and documents into
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/crichalchemist/ReadMeLocal
 cd ReadMeLocal
 ```
 
@@ -93,6 +108,44 @@ The app will automatically:
 1. Start the Python backend server on `localhost:5000`
 2. Launch the React development server
 3. Open the Electron desktop application
+
+## 🔊 Local TTS (Coqui)
+
+Run the text-to-speech pipeline completely on the SSH server with [Coqui TTS](https://github.com/coqui-ai/TTS) to avoid external API costs.
+
+1. Install backend dependencies (includes the `TTS` package which downloads PyTorch automatically):
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   ```
+2. Enable/adjust the local voice in `config/settings.yaml`:
+   ```yaml
+   tts_default: "local"
+   local_tts:
+     enabled: true
+     provider: "coqui"
+     model_name: "tts_models/en/vctk/vits"
+     default_voice: "coqui_en"
+   voices:
+     - name: "coqui_en"
+       type: "local"
+       enabled: true
+       speaker: "p273"
+       language: "en"
+   ```
+3. Start the backend or Electron app. On the first request the model will be downloaded (~1 GB) and subsequent conversions will be cached under `cache/audio/`.
+4. Trigger TTS from the UI; when a local voice is selected, the backend calls Coqui and returns both a streaming URL and `/api/audio/{job_id}/download`.
+5. Click **Download audio** to save the generated `.wav`/`.mp3` file, or call the API directly:
+   ```bash
+   curl -L -o output.wav "http://localhost:5000/api/audio/<job_id>/download"
+   ```
+6. Cloud/OpenAI voices remain available; change the voice selector to a cloud voice to send the same request through the Heroku API.
+
+### Switching modes
+
+- **Local-first**: set `tts_default: "local"` and keep a local voice selected. No OpenAI/Heroku keys required—ideal for offline sessions or avoiding per-character billing.
+- **Cloud fallback**: pick any `type: "cloud"` voice or send `mode: "cloud"` in `/api/tts` to route through Heroku/OpenAI. Useful when you need a different voice or when the local GPU/CPU is busy.
+- **Hybrid**: keep multiple voices configured and switch on-demand in the React UI; the backend will automatically pick the correct mode based on the selected voice.
 
 ## 📦 Project Structure
 

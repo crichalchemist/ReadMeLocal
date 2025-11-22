@@ -1,13 +1,16 @@
 # ReadMe Configuration File
 
 # TTS Settings
-tts_default: "cloud"  # "local" or "cloud"
+tts_default: "local"  # "local" or "cloud"
 
 # Available voices
 voices:
   - name: "coqui_en"
     type: "local"
-    enabled: false
+    enabled: true
+    speaker: "p273"
+    language: "en"
+    description: "Coqui VITS English voice"
   - name: "openai_alloy"
     type: "cloud"
     enabled: true
@@ -29,6 +32,17 @@ voices:
 
 # Heroku Cloud Settings
 heroku_api_url: "https://readme-ai.herokuapp.com"
+
+# Local TTS configuration
+local_tts:
+  enabled: true
+  provider: "coqui"
+  model_name: "tts_models/en/vctk/vits"
+  default_voice: "coqui_en"
+  speaker_id: "p273"
+  language: "en"
+  use_gpu: false
+  progress_bar: false
 
 # Cache Settings
 cache_dir: "./cache"
@@ -69,7 +83,7 @@ local_api_host: "127.0.0.1"
 # Feature Flags
 features:
   summarization: true
-  local_tts: false  # Set to true when Coqui-TTS is installed
+  local_tts: true
   annotations: true
   bookmarks: true
   export_audio: false  # Planned (not implemented)

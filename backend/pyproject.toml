@@ -19,6 +19,7 @@ dependencies = [
     "PyYAML>=6.0.2",
     "python-dotenv>=1.0.1",
     "httpx>=0.27.2",
+    "TTS>=0.22.0",
 ]
 
 [build-system]

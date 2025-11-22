@@ -5,14 +5,18 @@ Phase 2: Core Backend — single-book DB + basic endpoints
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import os
 import re
 import sys
+import threading
+import wave
 from datetime import datetime, timezone
 from importlib import import_module
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import httpx
 import uvicorn
@@ -41,6 +45,13 @@ except FileNotFoundError:
 
 from backend.content_filter import ContentFilter
 
+# Feature flags and TTS defaults
+FEATURE_FLAGS: Dict[str, bool] = (SETTINGS.get("features") or {}) if isinstance(SETTINGS.get("features"), dict) else {}
+LOCAL_TTS_CFG: Dict[str, Optional[str]] = (SETTINGS.get("local_tts") or {}) if isinstance(SETTINGS.get("local_tts"), dict) else {}
+LOCAL_TTS_ENABLED = bool(LOCAL_TTS_CFG.get("enabled", FEATURE_FLAGS.get("local_tts", False)))
+LOCAL_TTS_DEFAULT_VOICE = LOCAL_TTS_CFG.get("default_voice")
+DEFAULT_TTS_MODE = (SETTINGS.get("tts_default", "cloud") or "cloud").lower()
+
 # Resolve DB path relative to project root
 _db_rel = SETTINGS.get("database_path", "./db/readme.db")
 DB_PATH = (ROOT_DIR / _db_rel).resolve()
@@ -51,6 +62,12 @@ CACHE_DIR = (ROOT_DIR / SETTINGS.get("cache_dir", "./cache")).resolve()
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_DIR = (CACHE_DIR / "audio").resolve()
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+SUPPORTED_AUDIO_EXTENSIONS = {
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+}
 
 # Playback configuration (Phase 6)
 _playback_cfg = SETTINGS.get("playback", {}) or {}
@@ -68,6 +85,8 @@ PARSER_REGISTRY = {
     ".epub": ("backend.parsers.epub_parser", "EPUBParser", "epub"),
     ".docx": ("backend.parsers.docx_parser", "DOCXParser", "docx"),
 }
+_LOCAL_TTS_SERVICE = None
+_LOCAL_TTS_LOCK = threading.Lock()
 
 # ------------------------------------------------------------
 # Database setup
@@ -203,6 +222,7 @@ class TtsResponse(BaseModel):
     duration: Optional[float] = None
     sample_rate: Optional[int] = None
     audio_path: Optional[str] = None  # local server streaming path
+    download_path: Optional[str] = None  # direct download endpoint
 
 
 # ------------------------------------------------------------
@@ -543,7 +563,8 @@ async def _call_cloud_tts(text: str, voice: Optional[str] = None, model: Optiona
 
 @app.post("/api/tts", response_model=TtsResponse)
 async def generate_tts(req: TtsRequest):
-    mode = (req.mode or SETTINGS.get("tts_default", "cloud")).lower()
+    voice_cfg = _get_voice_entry(req.voice)
+    mode = _determine_tts_mode(req.mode, voice_cfg)
     text = (req.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
@@ -552,22 +573,30 @@ async def generate_tts(req: TtsRequest):
         text = text[:8000]
     if mode == "cloud":
         data = await _call_cloud_tts(text, voice=req.voice, model=req.model)
-        return TtsResponse(
-            job_id=data["job_id"],
-            duration=data.get("duration"),
-            sample_rate=data.get("sample_rate"),
-            audio_path=f"/api/audio/{data['job_id']}/stream",
-        )
+    elif mode == "local":
+        data = await _call_local_tts(text, voice_cfg=voice_cfg)
     else:
-        raise HTTPException(status_code=501, detail="Local TTS not implemented yet")
+        raise HTTPException(status_code=400, detail=f"Unsupported TTS mode: {mode}")
+
+    return TtsResponse(
+        job_id=data["job_id"],
+        duration=data.get("duration"),
+        sample_rate=data.get("sample_rate"),
+        audio_path=f"/api/audio/{data['job_id']}/stream",
+        download_path=f"/api/audio/{data['job_id']}/download",
+    )
 
 
 @app.get("/api/audio/{job_id}/stream")
 async def stream_audio(job_id: str):
-    path = AUDIO_DIR / f"{job_id}.mp3"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Audio not found")
-    return FileResponse(str(path), media_type="audio/mpeg", filename=f"{job_id}.mp3")
+    path, mime = _locate_audio_file(job_id)
+    return FileResponse(str(path), media_type=mime, filename=path.name)
+
+
+@app.get("/api/audio/{job_id}/download")
+async def download_audio(job_id: str):
+    path, mime = _locate_audio_file(job_id)
+    return FileResponse(str(path), media_type=mime, filename=path.name)
 
 
 # ------------------------------------------------------------
@@ -651,10 +680,130 @@ async def sync_sentence_position(req: SentenceSyncRequest, db: Session = Depends
     }
 
 
+def _get_voice_entry(voice_name: Optional[str]) -> Optional[dict]:
+    if not voice_name:
+        return None
+    voices = SETTINGS.get("voices") or []
+    for voice in voices:
+        if isinstance(voice, dict) and voice.get("name") == voice_name:
+            return voice
+    return None
+
+
+def _determine_tts_mode(requested_mode: Optional[str], voice_cfg: Optional[dict]) -> str:
+    if requested_mode:
+        return (requested_mode or DEFAULT_TTS_MODE).lower()
+    if voice_cfg and voice_cfg.get("type") == "local":
+        return "local"
+    return DEFAULT_TTS_MODE
+
+
+def _get_local_tts_service():
+    if not LOCAL_TTS_ENABLED:
+        raise HTTPException(status_code=503, detail="Local TTS is disabled in configuration.")
+
+    global _LOCAL_TTS_SERVICE
+    if _LOCAL_TTS_SERVICE is not None:
+        return _LOCAL_TTS_SERVICE
+
+    with _LOCAL_TTS_LOCK:
+        if _LOCAL_TTS_SERVICE is None:
+            try:
+                from backend.tts.coqui import CoquiTTSService
+            except ImportError as exc:  # pragma: no cover - runtime guard
+                raise HTTPException(
+                    status_code=503,
+                    detail="Coqui TTS dependency missing. Install it with `pip install TTS`."
+                ) from exc
+
+            model_name = LOCAL_TTS_CFG.get("model_name") or "tts_models/en/vctk/vits"
+            default_speaker = LOCAL_TTS_CFG.get("speaker_id") or LOCAL_TTS_CFG.get("speaker")
+            default_language = LOCAL_TTS_CFG.get("language")
+            vocoder_path = LOCAL_TTS_CFG.get("vocoder_path")
+            use_gpu = bool(LOCAL_TTS_CFG.get("use_gpu", False))
+
+            _LOCAL_TTS_SERVICE = CoquiTTSService(
+                model_name=model_name,
+                vocoder_path=vocoder_path,
+                default_speaker=default_speaker,
+                default_language=default_language,
+                use_gpu=use_gpu,
+                progress_bar=bool(LOCAL_TTS_CFG.get("progress_bar", False)),
+            )
+    return _LOCAL_TTS_SERVICE
+
+
+def _probe_wav_metadata(path: Path) -> tuple[Optional[float], Optional[int]]:
+    if path.suffix.lower() != ".wav":
+        return None, None
+    try:
+        with contextlib.closing(wave.open(str(path), "rb")) as wav_file:
+            frames = wav_file.getnframes()
+            framerate = wav_file.getframerate()
+            duration = frames / float(framerate) if framerate else None
+            return duration, framerate
+    except Exception:
+        return None, None
+
+
+async def _call_local_tts(text: str, *, voice_cfg: Optional[dict]) -> dict:
+    service = _get_local_tts_service()
+    job_id = datetime.now(timezone.utc).strftime("local-%Y%m%d%H%M%S%f")
+    output_path = AUDIO_DIR / f"{job_id}.wav"
+
+    speaker = None
+    language = None
+    style_wav = None
+    if voice_cfg:
+        speaker = voice_cfg.get("speaker") or voice_cfg.get("speaker_id")
+        language = voice_cfg.get("language")
+        style_wav = voice_cfg.get("style_wav")
+    elif LOCAL_TTS_DEFAULT_VOICE:
+        default_cfg = _get_voice_entry(LOCAL_TTS_DEFAULT_VOICE)
+        if default_cfg:
+            speaker = default_cfg.get("speaker") or default_cfg.get("speaker_id")
+            language = default_cfg.get("language")
+            style_wav = default_cfg.get("style_wav")
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: service.synthesize_to_file(
+            text=text,
+            output_path=output_path,
+            speaker=speaker,
+            language=language,
+            style_wav=style_wav,
+        ),
+    )
+
+    duration, sample_rate = _probe_wav_metadata(output_path)
+    return {
+        "job_id": job_id,
+        "duration": duration,
+        "sample_rate": sample_rate,
+        "audio_path": str(output_path),
+    }
+
+
+def _locate_audio_file(job_id: str) -> tuple[Path, str]:
+    for ext, mime in SUPPORTED_AUDIO_EXTENSIONS.items():
+        candidate = AUDIO_DIR / f"{job_id}{ext}"
+        if candidate.exists():
+            return candidate, mime
+
+    matches = list(AUDIO_DIR.glob(f"{job_id}.*"))
+    if matches:
+        path = matches[0]
+        mime = SUPPORTED_AUDIO_EXTENSIONS.get(path.suffix.lower(), "application/octet-stream")
+        return path, mime
+    raise HTTPException(status_code=404, detail="Audio not found")
+
+
 @app.get("/api/settings")
 async def get_settings():
     return {
-        "tts_default": SETTINGS.get("tts_default", "cloud"),
+        "tts_default": DEFAULT_TTS_MODE,
         "voices": SETTINGS.get("voices", []),
         "heroku_api_url": SETTINGS.get("heroku_api_url"),
         "playback": {
@@ -662,6 +811,12 @@ async def get_settings():
             "speed_increment": SPEED_INCREMENT,
             "increment_interval_minutes": INCREMENT_INTERVAL_MIN,
             "max_speed": MAX_SPEED,
+        },
+        "local_tts": {
+            "enabled": LOCAL_TTS_ENABLED,
+            "default_voice": LOCAL_TTS_DEFAULT_VOICE,
+            "model": LOCAL_TTS_CFG.get("model_name"),
+            "provider": LOCAL_TTS_CFG.get("provider", "coqui"),
         },
     }
 

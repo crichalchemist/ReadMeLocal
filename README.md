@@ -224,3 +224,13 @@ This is a personal project, but suggestions and feedback are welcome! Please ope
 **Status**: 🚧 In Development (Phase 8 — Single–Book Lock next) · Backend v0.3.0
 
 For detailed technical specifications, see [.junie/guidelines.md](.junie/guidelines.md)
+
+---
+
+## Sprint Reader Rebuild (Visual-Only)
+
+If you are rebuilding this project into a **visual-only sprint reader** (no TTS), refer to the detailed plan here:
+
+- [docs/sprint-reader-plan.md](docs/sprint-reader-plan.md)
+
+This plan targets a **single-word, minimal black screen** reading mode with local-only parsing for PDF/EPUB first.

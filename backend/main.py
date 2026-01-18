@@ -94,10 +94,10 @@ _LOCAL_TTS_SERVICE = None
 _LOCAL_TTS_LOCK = threading.Lock()
 
 
-def _get_library_path() -> Path:
+def _get_library_path() -> Optional[Path]:
     path_value = os.getenv("README_LIBRARY_PATH") or SETTINGS.get("library_path") or ""
     if not path_value:
-        return Path()
+        return None
     return Path(path_value).expanduser()
 
 # ------------------------------------------------------------
@@ -855,11 +855,12 @@ def _locate_audio_file(job_id: str) -> tuple[Path, str]:
 
 @app.get("/api/settings")
 async def get_settings():
+    library_path = _get_library_path()
     return {
         "tts_default": DEFAULT_TTS_MODE,
         "voices": SETTINGS.get("voices", []),
         "heroku_api_url": SETTINGS.get("heroku_api_url"),
-        "library_path": str(_get_library_path()),
+        "library_path": str(library_path) if library_path else "",
         "rsvp": {
             "wpm_default": RSVP_DEFAULT_WPM,
             "wpm_max": RSVP_MAX_WPM,

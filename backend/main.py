@@ -449,7 +449,7 @@ def update_library_path(payload: LibraryPathUpdate):
 
     SETTINGS["library_path"] = str(new_path)
     _set_library_path_in_config(str(new_path))
-    return {"library_path": str(new_path)}
+    return {"library_path": str(new_path), "items": scan_library(new_path)}
 
 
 @app.get("/api/books/{book_id}")

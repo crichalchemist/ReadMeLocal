@@ -127,7 +127,11 @@ function App() {
       }
       const data = await res.json();
       setLibraryPath(data.library_path || "");
-      loadLibrary();
+      if (Array.isArray(data.items)) {
+        setLibrary(data.items);
+      } else {
+        loadLibrary();
+      }
       setError("");
     } catch (err) {
       setError(err.message || "Failed to save library path");

@@ -146,7 +146,9 @@ function App() {
         </section>
         <section className="context">
           {paragraphs.map((paragraph, i) => (
-            <p key={i}>{paragraph}</p>
+            <p key={i} className={i === tokens[index]?.paragraph_index ? "active" : ""}>
+              {paragraph}
+            </p>
           ))}
         </section>
       </main>

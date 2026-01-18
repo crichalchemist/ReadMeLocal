@@ -15,13 +15,15 @@ function App() {
   const [playing, setPlaying] = useState(false);
   const [wpm, setWpm] = useState(150);
   const [error, setError] = useState("");
+  const [libraryPath, setLibraryPath] = useState("");
+  const [savingPath, setSavingPath] = useState(false);
   const nextAtRef = useRef(0);
 
-  useEffect(() => {
+  const loadLibrary = () => {
     fetch(`${API_BASE}/api/library`)
       .then((res) => {
         if (!res.ok) {
-          throw new Error("Library not configured. Set library_path in settings.yaml.");
+          throw new Error("Library not configured. Set library_path or save a path.");
         }
         return res.json();
       })
@@ -33,6 +35,22 @@ function App() {
         setLibrary([]);
         setError(err.message);
       });
+  };
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/settings`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.rsvp?.wpm_default) {
+          setWpm(data.rsvp.wpm_default);
+        }
+        if (typeof data?.library_path === "string") {
+          setLibraryPath(data.library_path);
+        }
+      })
+      .catch(() => {});
+
+    loadLibrary();
   }, []);
 
   const baseMs = useMemo(() => baseMsForWpm(wpm), [wpm]);
@@ -95,6 +113,29 @@ function App() {
     nextAtRef.current = 0;
   };
 
+  const saveLibraryPath = async () => {
+    setSavingPath(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/library/path`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: libraryPath }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data?.detail || "Failed to save library path");
+      }
+      const data = await res.json();
+      setLibraryPath(data.library_path || "");
+      loadLibrary();
+      setError("");
+    } catch (err) {
+      setError(err.message || "Failed to save library path");
+    } finally {
+      setSavingPath(false);
+    }
+  };
+
   return (
     <div className="app">
       <aside className="library">
@@ -102,7 +143,21 @@ function App() {
           <h2>Library</h2>
           <p className="library-subtitle">Local PDF + EPUB collection</p>
         </div>
+        <div className="library-config">
+          <label htmlFor="library-path">Library path</label>
+          <input
+            id="library-path"
+            type="text"
+            value={libraryPath}
+            onChange={(event) => setLibraryPath(event.target.value)}
+            placeholder="/path/to/books"
+          />
+          <button type="button" onClick={saveLibraryPath} disabled={savingPath}>
+            {savingPath ? "Saving..." : "Save path"}
+          </button>
+        </div>
         {error ? <div className="error">{error}</div> : null}
+        <div className="library-count">{library.length} items</div>
         <ul className="library-list">
           {library.map((item) => (
             <li key={item.id}>

@@ -7,6 +7,12 @@ afterEach(() => {
 
 test("highlights current paragraph", async () => {
   global.fetch = jest.fn((url) => {
+    if (url.endsWith("/api/settings")) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ library_path: "", rsvp: { wpm_default: 150 } }),
+      });
+    }
     if (url.endsWith("/api/library")) {
       return Promise.resolve({
         ok: true,

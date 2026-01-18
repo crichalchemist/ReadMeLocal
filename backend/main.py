@@ -100,6 +100,29 @@ def _get_library_path() -> Optional[Path]:
         return None
     return Path(path_value).expanduser()
 
+
+def _set_library_path_in_config(new_path: str) -> None:
+    config_text = ""
+    if CONFIG_PATH.exists():
+        config_text = CONFIG_PATH.read_text(encoding="utf-8")
+
+    if "library_path:" in config_text:
+        updated_lines = []
+        for line in config_text.splitlines():
+            if line.strip().startswith("library_path:"):
+                updated_lines.append(f'library_path: "{new_path}"')
+            else:
+                updated_lines.append(line)
+        config_text = "\n".join(updated_lines) + "\n"
+    elif "# Library Settings" in config_text:
+        prefix, suffix = config_text.split("# Library Settings", 1)
+        config_text = f"{prefix}# Library Settings\nlibrary_path: \"{new_path}\"\n{suffix.lstrip()}"
+    else:
+        spacer = "\n" if config_text and not config_text.endswith("\n") else ""
+        config_text = f"{config_text}{spacer}library_path: \"{new_path}\"\n"
+
+    CONFIG_PATH.write_text(config_text, encoding="utf-8")
+
 # ------------------------------------------------------------
 # Database setup
 # ------------------------------------------------------------
@@ -208,6 +231,10 @@ class PlaybackUpdateResponse(BaseModel):
     position_seconds: float
     speed: float
     last_updated: datetime
+
+
+class LibraryPathUpdate(BaseModel):
+    path: str
 
 
 # Phase 7: Text-audio sync models
@@ -406,6 +433,23 @@ def list_library():
     if not library_path or not library_path.exists():
         raise HTTPException(status_code=400, detail="Library path not configured")
     return scan_library(library_path)
+
+
+@app.put("/api/library/path")
+def update_library_path(payload: LibraryPathUpdate):
+    raw_path = payload.path.strip()
+    if not raw_path:
+        SETTINGS["library_path"] = ""
+        _set_library_path_in_config("")
+        return {"library_path": ""}
+
+    new_path = Path(raw_path).expanduser()
+    if not new_path.exists():
+        raise HTTPException(status_code=400, detail="Library path does not exist")
+
+    SETTINGS["library_path"] = str(new_path)
+    _set_library_path_in_config(str(new_path))
+    return {"library_path": str(new_path)}
 
 
 @app.get("/api/books/{book_id}")

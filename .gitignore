@@ -94,6 +94,9 @@ tmp/
 temp/
 *.tmp
 
+# Worktrees
+.worktrees/
+
 # Package files
 *.dmg
 *.pkg

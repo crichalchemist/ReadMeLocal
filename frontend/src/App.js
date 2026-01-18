@@ -17,7 +17,13 @@ function App() {
   const [error, setError] = useState("");
   const [libraryPath, setLibraryPath] = useState("");
   const [savingPath, setSavingPath] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [ttsLoading, setTtsLoading] = useState(false);
+  const [currentParagraphAudio, setCurrentParagraphAudio] = useState(null);
   const nextAtRef = useRef(0);
+  const audioRef = useRef(null);
+  const ttsAbortRef = useRef(null);
+  const prevParagraphRef = useRef(0);
 
   const loadLibrary = () => {
     fetch(`${API_BASE}/api/library`)
@@ -55,6 +61,63 @@ function App() {
 
   const baseMs = useMemo(() => baseMsForWpm(wpm), [wpm]);
 
+  const libraryByType = useMemo(() => {
+    const groups = {};
+    library.forEach((item) => {
+      const ext = (item.ext || ".unknown").replace(".", "").toUpperCase();
+      if (!groups[ext]) groups[ext] = [];
+      groups[ext].push(item);
+    });
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+  }, [library]);
+
+  // Get current paragraph index from current token (defined early for use in effects)
+  const currentParagraphIndex = tokens[index]?.paragraph_index ?? 0;
+
+  // Generate TTS for a paragraph and return the audio URL
+  const generateTts = async (text) => {
+    if (!text || !ttsEnabled) return null;
+    try {
+      const res = await fetch(`${API_BASE}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice: "coqui_en", mode: "local" }),
+      });
+      if (!res.ok) {
+        console.error("TTS generation failed");
+        return null;
+      }
+      const data = await res.json();
+      return {
+        url: `${API_BASE}${data.audio_path}`,
+        duration: data.duration,
+      };
+    } catch (err) {
+      console.error("TTS error:", err);
+      return null;
+    }
+  };
+
+  // Handle paragraph transitions for TTS
+  useEffect(() => {
+    if (!playing || !ttsEnabled) return;
+    if (prevParagraphRef.current !== currentParagraphIndex) {
+      prevParagraphRef.current = currentParagraphIndex;
+      // Load audio for new paragraph
+      const loadNextAudio = async () => {
+        const paragraphText = paragraphs[currentParagraphIndex];
+        if (!paragraphText) return;
+        const ttsData = await generateTts(paragraphText);
+        if (ttsData && audioRef.current) {
+          setCurrentParagraphAudio(ttsData);
+          audioRef.current.src = ttsData.url;
+          audioRef.current.play().catch((err) => console.error("Audio play error:", err));
+        }
+      };
+      loadNextAudio();
+    }
+  }, [currentParagraphIndex, playing, ttsEnabled, paragraphs]);
+
   useEffect(() => {
     if (!playing || tokens.length === 0) return;
     let rafId;
@@ -68,6 +131,9 @@ function App() {
         setIndex((prev) => {
           if (prev >= tokens.length - 1) {
             setPlaying(false);
+            if (audioRef.current) {
+              audioRef.current.pause();
+            }
             nextAtRef.current = 0;
             return prev;
           }
@@ -84,6 +150,14 @@ function App() {
   }, [playing, tokens, index, baseMs]);
 
   const loadBook = async (bookId) => {
+    // Stop any current playback
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+    }
+    setPlaying(false);
+    setCurrentParagraphAudio(null);
+
     const res = await fetch(`${API_BASE}/api/books/${bookId}`);
     if (!res.ok) {
       setError("Failed to load book.");
@@ -94,17 +168,39 @@ function App() {
     setTokens(data.tokens || []);
     setParagraphs(data.paragraphs || []);
     setIndex(0);
-    setPlaying(false);
     nextAtRef.current = 0;
+    prevParagraphRef.current = 0;
   };
 
-  const togglePlay = () => {
-    setPlaying((prev) => {
-      if (!prev) {
-        nextAtRef.current = 0;
+  const togglePlay = async () => {
+    if (playing) {
+      // Pausing
+      setPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
       }
-      return !prev;
-    });
+      return;
+    }
+
+    // Starting playback
+    nextAtRef.current = 0;
+
+    if (ttsEnabled && paragraphs.length > 0) {
+      setTtsLoading(true);
+      const paragraphText = paragraphs[currentParagraphIndex];
+      const ttsData = await generateTts(paragraphText);
+      setTtsLoading(false);
+
+      if (ttsData) {
+        setCurrentParagraphAudio(ttsData);
+        if (audioRef.current) {
+          audioRef.current.src = ttsData.url;
+          audioRef.current.play().catch((err) => console.error("Audio play error:", err));
+        }
+      }
+    }
+
+    setPlaying(true);
   };
 
   const handleWpmChange = (event) => {
@@ -142,6 +238,7 @@ function App() {
 
   return (
     <div className="app">
+      <audio ref={audioRef} style={{ display: "none" }} />
       <aside className="library">
         <div className="library-header">
           <h2>Library</h2>
@@ -162,15 +259,22 @@ function App() {
         </div>
         {error ? <div className="error">{error}</div> : null}
         <div className="library-count">{library.length} items</div>
-        <ul className="library-list">
-          {library.map((item) => (
-            <li key={item.id}>
-              <button type="button" onClick={() => loadBook(item.id)}>
-                {item.title}
-              </button>
-            </li>
+        <div className="library-list">
+          {libraryByType.map(([ext, items]) => (
+            <div key={ext} className="library-section">
+              <h3 className="library-section-header">{ext} ({items.length})</h3>
+              <ul>
+                {items.map((item) => (
+                  <li key={item.id}>
+                    <button type="button" onClick={() => loadBook(item.id)}>
+                      {item.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </ul>
+        </div>
       </aside>
       <main className="reader">
         <header className="reader-header">
@@ -179,8 +283,20 @@ function App() {
             <p>{book?.author || ""}</p>
           </div>
           <div className="controls">
-            <button type="button" onClick={togglePlay} disabled={tokens.length === 0}>
-              {playing ? "Pause" : "Play"}
+            <button
+              type="button"
+              onClick={togglePlay}
+              disabled={tokens.length === 0 || ttsLoading}
+            >
+              {ttsLoading ? "Loading..." : playing ? "Pause" : "Play"}
+            </button>
+            <button
+              type="button"
+              className={`tts-toggle ${ttsEnabled ? "active" : ""}`}
+              onClick={() => setTtsEnabled((prev) => !prev)}
+              title={ttsEnabled ? "TTS On" : "TTS Off"}
+            >
+              {ttsEnabled ? "🔊" : "🔇"}
             </button>
             <label>
               <span>{wpm} WPM</span>

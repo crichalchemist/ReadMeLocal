@@ -126,6 +126,29 @@ body {
   box-shadow: 0 12px 20px rgba(23, 23, 23, 0.12);
 }
 
+.library-section {
+  margin-bottom: 16px;
+}
+
+.library-section ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.library-section-header {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(23, 23, 23, 0.1);
+}
+
 .error {
   background: #ffe4df;
   color: #7a1f1f;
@@ -177,6 +200,22 @@ body {
   border-radius: 999px;
   cursor: pointer;
   box-shadow: 0 10px 18px rgba(255, 111, 97, 0.3);
+}
+
+.controls button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.tts-toggle {
+  background: rgba(23, 23, 23, 0.1) !important;
+  box-shadow: none !important;
+  font-size: 18px;
+  padding: 8px 12px !important;
+}
+
+.tts-toggle.active {
+  background: linear-gradient(135deg, #4ade80, #22c55e) !important;
 }
 
 .controls label {

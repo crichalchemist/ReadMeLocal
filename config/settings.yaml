@@ -50,7 +50,7 @@ cache_max_size_mb: 1000
 auto_clear_cache: false
 
 # Library Settings
-library_path: ""  # Set to your local library folder (e.g., "/path/to/books")
+library_path: "/Volumes/Rich 3TB/books"  # Set to your local library folder (e.g., "/path/to/books")
 
 # Database
 database_path: "./db/readme.db"

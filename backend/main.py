@@ -44,6 +44,8 @@ except FileNotFoundError:
     SETTINGS = {}
 
 from backend.content_filter import ContentFilter
+from backend.library import scan_library
+from backend.rsvp_tokens import split_paragraphs, tokenize_paragraphs
 
 # Feature flags and TTS defaults
 FEATURE_FLAGS: Dict[str, bool] = (SETTINGS.get("features") or {}) if isinstance(SETTINGS.get("features"), dict) else {}
@@ -75,6 +77,9 @@ START_SPEED = float(_playback_cfg.get("start_speed", 1.5))
 SPEED_INCREMENT = float(_playback_cfg.get("speed_increment", 0.1))
 INCREMENT_INTERVAL_MIN = int(_playback_cfg.get("increment_interval_minutes", 15))
 MAX_SPEED = float(_playback_cfg.get("max_speed", 2.5))
+_rsvp_cfg = SETTINGS.get("rsvp", {}) or {}
+RSVP_DEFAULT_WPM = int(_rsvp_cfg.get("wpm_default", 150))
+RSVP_MAX_WPM = int(_rsvp_cfg.get("wpm_max", 1024))
 
 _session_cfg = SETTINGS.get("session", {}) or {}
 SINGLE_BOOK_MODE = bool(_session_cfg.get("single_book_mode", True))
@@ -87,6 +92,13 @@ PARSER_REGISTRY = {
 }
 _LOCAL_TTS_SERVICE = None
 _LOCAL_TTS_LOCK = threading.Lock()
+
+
+def _get_library_path() -> Optional[Path]:
+    path_value = os.getenv("README_LIBRARY_PATH") or SETTINGS.get("library_path") or ""
+    if not path_value:
+        return None
+    return Path(path_value).expanduser()
 
 # ------------------------------------------------------------
 # Database setup
@@ -249,6 +261,18 @@ def _split_sentences(text: str) -> List[str]:
     return [p.strip() for p in parts if p and p.strip()]
 
 
+def _load_parser(suffix: str):
+    module_path, class_name, _ = PARSER_REGISTRY.get(suffix, (None, None, None))
+    if not module_path:
+        raise HTTPException(status_code=500, detail=f"No parser registered for {suffix}")
+    try:
+        parser_module = import_module(module_path)
+        parser_cls = getattr(parser_module, class_name)
+        return parser_cls()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load parser: {exc}") from exc
+
+
 def _read_uploaded_file(upload: UploadFile) -> tuple[str, str]:
     """Return (text, filetype) from uploaded file. Supports .txt, .md, .pdf, .epub, .docx."""
     filename = upload.filename or "uploaded"
@@ -278,14 +302,9 @@ def _read_uploaded_file(upload: UploadFile) -> tuple[str, str]:
             temp_file.write(upload.file.read())
             temp_path = Path(temp_file.name)
 
-        module_path, class_name, normalized_type = PARSER_REGISTRY.get(suffix, (None, None, None))
-        if not module_path:
-            raise HTTPException(status_code=500, detail=f"No parser registered for {suffix}")
-
+        _, _, normalized_type = PARSER_REGISTRY.get(suffix, (None, None, None))
         try:
-            parser_module = import_module(module_path)
-            parser_cls = getattr(parser_module, class_name)
-            parser = parser_cls()
+            parser = _load_parser(suffix)
             result = parser.parse_file(str(temp_path))
             return result, normalized_type
         except HTTPException:
@@ -378,6 +397,40 @@ async def health_check():
         "database_exists": db_ok,
         "cache_dir": str(CACHE_DIR),
         "cache_exists": cache_ok,
+    }
+
+
+@app.get("/api/library")
+def list_library():
+    library_path = _get_library_path()
+    if not library_path or not library_path.exists():
+        raise HTTPException(status_code=400, detail="Library path not configured")
+    return scan_library(library_path)
+
+
+@app.get("/api/books/{book_id}")
+def get_book(book_id: str):
+    library_path = _get_library_path()
+    if not library_path or not library_path.exists():
+        raise HTTPException(status_code=400, detail="Library path not configured")
+
+    items = scan_library(library_path)
+    match = next((item for item in items if item["id"] == book_id), None)
+    if not match:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    parser = _load_parser(match["ext"])
+    parsed = parser.parse_file(match["path"])
+    raw_text = parsed.get("raw_text") or "\n\n".join(parsed.get("content", []))
+    paragraphs = split_paragraphs(raw_text)
+    tokens = tokenize_paragraphs(paragraphs)
+
+    return {
+        "id": match["id"],
+        "title": parsed.get("title") or match["title"],
+        "author": parsed.get("author"),
+        "paragraphs": paragraphs,
+        "tokens": tokens,
     }
 
 
@@ -802,10 +855,16 @@ def _locate_audio_file(job_id: str) -> tuple[Path, str]:
 
 @app.get("/api/settings")
 async def get_settings():
+    library_path = _get_library_path()
     return {
         "tts_default": DEFAULT_TTS_MODE,
         "voices": SETTINGS.get("voices", []),
         "heroku_api_url": SETTINGS.get("heroku_api_url"),
+        "library_path": str(library_path) if library_path else "",
+        "rsvp": {
+            "wpm_default": RSVP_DEFAULT_WPM,
+            "wpm_max": RSVP_MAX_WPM,
+        },
         "playback": {
             "start_speed": START_SPEED,
             "speed_increment": SPEED_INCREMENT,

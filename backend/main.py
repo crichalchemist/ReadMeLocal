@@ -52,7 +52,6 @@ FEATURE_FLAGS: Dict[str, bool] = (SETTINGS.get("features") or {}) if isinstance(
 LOCAL_TTS_CFG: Dict[str, Optional[str]] = (SETTINGS.get("local_tts") or {}) if isinstance(SETTINGS.get("local_tts"), dict) else {}
 LOCAL_TTS_ENABLED = bool(LOCAL_TTS_CFG.get("enabled", FEATURE_FLAGS.get("local_tts", False)))
 LOCAL_TTS_DEFAULT_VOICE = LOCAL_TTS_CFG.get("default_voice")
-DEFAULT_TTS_MODE = (SETTINGS.get("tts_default", "cloud") or "cloud").lower()
 
 # Resolve DB path relative to project root
 _db_rel = SETTINGS.get("database_path", "./db/readme.db")
@@ -657,62 +656,22 @@ async def update_playback(req: PlaybackUpdateRequest, db: Session = Depends(get_
 
 
 # ------------------------------------------------------------
-# Phase 5: Cloud TTS integration and audio streaming
 # ------------------------------------------------------------
-
-async def _call_cloud_tts(text: str, voice: Optional[str] = None, model: Optional[str] = None) -> dict:
-    base_url = SETTINGS.get("heroku_api_url", "https://readme-ai.herokuapp.com").rstrip("/")
-    url = f"{base_url}/api/v1/tts"
-    api_key = os.environ.get("HEROKU_API_KEY") or SETTINGS.get("api_key")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="HEROKU_API_KEY is not configured")
-    payload = {
-        "text": text,
-        "model": model or "gpt-4o-mini-tts",
-        "voice": voice or "alloy",
-    }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    timeout = httpx.Timeout(20.0, read=60.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(url, json=payload, headers=headers)
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=f"Cloud TTS error: {resp.text}")
-        data = resp.json()
-        # Try to fetch audio bytes
-        audio_url = data.get("audio_url")
-        job_id = data.get("job_id") or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
-        if not audio_url:
-            raise HTTPException(status_code=502, detail="Cloud TTS returned no audio_url")
-        audio_path = AUDIO_DIR / f"{job_id}.mp3"
-        aget = await client.get(audio_url)
-        if aget.status_code >= 400:
-            raise HTTPException(status_code=aget.status_code, detail="Failed to download audio")
-        with open(audio_path, "wb") as f:
-            f.write(aget.content)
-        return {
-            "job_id": job_id,
-            "duration": data.get("duration"),
-            "sample_rate": data.get("sample_rate"),
-            "audio_path": str(audio_path),
-        }
-
+# TTS integration and audio streaming (Google Cloud TTS)
+# ------------------------------------------------------------
 
 @app.post("/api/tts", response_model=TtsResponse)
 async def generate_tts(req: TtsRequest):
+    """Generate speech from text using Google Cloud TTS."""
     voice_cfg = _get_voice_entry(req.voice)
-    mode = _determine_tts_mode(req.mode, voice_cfg)
     text = (req.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
     # Limit text length to a reasonable size for TTS
     if len(text) > 8000:
         text = text[:8000]
-    if mode == "cloud":
-        data = await _call_cloud_tts(text, voice=req.voice, model=req.model)
-    elif mode == "local":
-        data = await _call_local_tts(text, voice_cfg=voice_cfg)
-    else:
-        raise HTTPException(status_code=400, detail=f"Unsupported TTS mode: {mode}")
+
+    data = await _call_tts(text, voice_cfg=voice_cfg)
 
     return TtsResponse(
         job_id=data["job_id"],
@@ -826,17 +785,10 @@ def _get_voice_entry(voice_name: Optional[str]) -> Optional[dict]:
     return None
 
 
-def _determine_tts_mode(requested_mode: Optional[str], voice_cfg: Optional[dict]) -> str:
-    if requested_mode:
-        return (requested_mode or DEFAULT_TTS_MODE).lower()
-    if voice_cfg and voice_cfg.get("type") == "local":
-        return "local"
-    return DEFAULT_TTS_MODE
-
-
-def _get_local_tts_service():
+def _get_tts_service():
+    """Get or create the Google Cloud TTS service instance."""
     if not LOCAL_TTS_ENABLED:
-        raise HTTPException(status_code=503, detail="Local TTS is disabled in configuration.")
+        raise HTTPException(status_code=503, detail="TTS is disabled in configuration.")
 
     global _LOCAL_TTS_SERVICE
     if _LOCAL_TTS_SERVICE is not None:
@@ -845,80 +797,86 @@ def _get_local_tts_service():
     with _LOCAL_TTS_LOCK:
         if _LOCAL_TTS_SERVICE is None:
             try:
-                from backend.tts.coqui import CoquiTTSService
-            except ImportError as exc:  # pragma: no cover - runtime guard
+                from backend.tts.google_tts import GoogleTTSService
+            except ImportError as exc:
                 raise HTTPException(
                     status_code=503,
-                    detail="Coqui TTS dependency missing. Install it with `pip install TTS`."
+                    detail="Google Cloud TTS dependency missing. Install with `pip install google-cloud-texttospeech`."
                 ) from exc
 
-            model_name = LOCAL_TTS_CFG.get("model_name") or "tts_models/en/vctk/vits"
-            default_speaker = LOCAL_TTS_CFG.get("speaker_id") or LOCAL_TTS_CFG.get("speaker")
-            default_language = LOCAL_TTS_CFG.get("language")
-            vocoder_path = LOCAL_TTS_CFG.get("vocoder_path")
-            use_gpu = bool(LOCAL_TTS_CFG.get("use_gpu", False))
+            default_voice = LOCAL_TTS_CFG.get("default_voice") or "en-US-Neural2-D"
+            speaking_rate = float(LOCAL_TTS_CFG.get("speaking_rate", 1.0))
+            audio_encoding = LOCAL_TTS_CFG.get("audio_encoding") or "MP3"
 
-            _LOCAL_TTS_SERVICE = CoquiTTSService(
-                model_name=model_name,
-                vocoder_path=vocoder_path,
-                default_speaker=default_speaker,
-                default_language=default_language,
-                use_gpu=use_gpu,
-                progress_bar=bool(LOCAL_TTS_CFG.get("progress_bar", False)),
+            _LOCAL_TTS_SERVICE = GoogleTTSService(
+                default_voice=default_voice,
+                default_speaking_rate=speaking_rate,
+                audio_encoding=audio_encoding,
             )
     return _LOCAL_TTS_SERVICE
 
 
-def _probe_wav_metadata(path: Path) -> tuple[Optional[float], Optional[int]]:
-    if path.suffix.lower() != ".wav":
-        return None, None
-    try:
-        with contextlib.closing(wave.open(str(path), "rb")) as wav_file:
-            frames = wav_file.getnframes()
-            framerate = wav_file.getframerate()
-            duration = frames / float(framerate) if framerate else None
-            return duration, framerate
-    except Exception:
-        return None, None
+def _probe_audio_metadata(path: Path) -> tuple[Optional[float], Optional[int]]:
+    """Probe audio file for duration and sample rate."""
+    suffix = path.suffix.lower()
+
+    # Handle WAV files
+    if suffix == ".wav":
+        try:
+            with contextlib.closing(wave.open(str(path), "rb")) as wav_file:
+                frames = wav_file.getnframes()
+                framerate = wav_file.getframerate()
+                duration = frames / float(framerate) if framerate else None
+                return duration, framerate
+        except Exception:
+            return None, None
+
+    # For MP3/OGG, duration estimation is complex without extra deps
+    # Return None and let frontend handle duration discovery
+    return None, None
 
 
-async def _call_local_tts(text: str, *, voice_cfg: Optional[dict]) -> dict:
-    service = _get_local_tts_service()
-    job_id = datetime.now(timezone.utc).strftime("local-%Y%m%d%H%M%S%f")
-    output_path = AUDIO_DIR / f"{job_id}.wav"
+async def _call_tts(text: str, *, voice_cfg: Optional[dict]) -> dict:
+    """Synthesize text using Google Cloud TTS."""
+    service = _get_tts_service()
+    job_id = datetime.now(timezone.utc).strftime("tts-%Y%m%d%H%M%S%f")
+    output_path = AUDIO_DIR / f"{job_id}.mp3"
 
-    speaker = None
-    language = None
-    style_wav = None
+    # Get voice parameters from config or defaults
+    voice_name = None
+    language_code = None
+    speaking_rate = None
+
     if voice_cfg:
-        speaker = voice_cfg.get("speaker") or voice_cfg.get("speaker_id")
-        language = voice_cfg.get("language")
-        style_wav = voice_cfg.get("style_wav")
+        voice_name = voice_cfg.get("name") or voice_cfg.get("voice_name")
+        language_code = voice_cfg.get("language_code")
+        speaking_rate = voice_cfg.get("speaking_rate")
     elif LOCAL_TTS_DEFAULT_VOICE:
         default_cfg = _get_voice_entry(LOCAL_TTS_DEFAULT_VOICE)
         if default_cfg:
-            speaker = default_cfg.get("speaker") or default_cfg.get("speaker_id")
-            language = default_cfg.get("language")
-            style_wav = default_cfg.get("style_wav")
+            voice_name = default_cfg.get("name") or default_cfg.get("voice_name")
+            language_code = default_cfg.get("language_code")
+            speaking_rate = default_cfg.get("speaking_rate")
 
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(
+    actual_path = await loop.run_in_executor(
         None,
         lambda: service.synthesize_to_file(
             text=text,
             output_path=output_path,
-            speaker=speaker,
-            language=language,
-            style_wav=style_wav,
+            speaker=voice_name,
+            language=language_code,
+            speaking_rate=speaking_rate,
         ),
     )
 
-    duration, sample_rate = _probe_wav_metadata(output_path)
+    # Google TTS may adjust the extension based on encoding
+    duration, sample_rate = _probe_audio_metadata(actual_path)
     return {
         "job_id": job_id,
         "duration": duration,
         "sample_rate": sample_rate,
-        "audio_path": str(output_path),
+        "audio_path": str(actual_path),
     }
 
 
@@ -940,9 +898,7 @@ def _locate_audio_file(job_id: str) -> tuple[Path, str]:
 async def get_settings():
     library_path = _get_library_path()
     return {
-        "tts_default": DEFAULT_TTS_MODE,
         "voices": SETTINGS.get("voices", []),
-        "heroku_api_url": SETTINGS.get("heroku_api_url"),
         "library_path": str(library_path) if library_path else "",
         "rsvp": {
             "wpm_default": RSVP_DEFAULT_WPM,
@@ -954,11 +910,11 @@ async def get_settings():
             "increment_interval_minutes": INCREMENT_INTERVAL_MIN,
             "max_speed": MAX_SPEED,
         },
-        "local_tts": {
+        "tts": {
             "enabled": LOCAL_TTS_ENABLED,
-            "default_voice": LOCAL_TTS_DEFAULT_VOICE,
-            "model": LOCAL_TTS_CFG.get("model_name"),
-            "provider": LOCAL_TTS_CFG.get("provider", "coqui"),
+            "provider": "google",
+            "default_voice": LOCAL_TTS_DEFAULT_VOICE or "en-US-Neural2-D",
+            "audio_encoding": LOCAL_TTS_CFG.get("audio_encoding", "MP3"),
         },
     }
 

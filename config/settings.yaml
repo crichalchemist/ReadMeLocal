@@ -1,50 +1,57 @@
 # ReadMe Configuration File
 
-# TTS Settings
-tts_default: "local"  # "local" or "cloud"
+# TTS Settings (Google Cloud Text-to-Speech)
+tts:
+  enabled: true
+  provider: "google"
+  default_voice: "en-US-Neural2-D"
+  audio_encoding: "MP3"  # MP3, LINEAR16 (WAV), or OGG_OPUS
+  speaking_rate: 1.0     # Speed multiplier (0.25 to 4.0)
 
-# Available voices
+# Available Google Cloud TTS voices
+# See: https://cloud.google.com/text-to-speech/docs/voices
 voices:
-  - name: "coqui_en"
-    type: "local"
-    enabled: true
-    speaker: "p273"
-    language: "en"
-    description: "Coqui VITS English voice"
-  - name: "openai_alloy"
-    type: "cloud"
-    enabled: true
-  - name: "openai_echo"
-    type: "cloud"
-    enabled: true
-  - name: "openai_fable"
-    type: "cloud"
-    enabled: true
-  - name: "openai_onyx"
-    type: "cloud"
-    enabled: true
-  - name: "openai_nova"
-    type: "cloud"
-    enabled: true
-  - name: "openai_shimmer"
-    type: "cloud"
-    enabled: true
+  - name: "en-US-Neural2-D"
+    language_code: "en-US"
+    gender: "MALE"
+    description: "Neural2 male voice (US English)"
+  - name: "en-US-Neural2-F"
+    language_code: "en-US"
+    gender: "FEMALE"
+    description: "Neural2 female voice (US English)"
+  - name: "en-US-Neural2-A"
+    language_code: "en-US"
+    gender: "MALE"
+    description: "Neural2 male voice A (US English)"
+  - name: "en-US-Neural2-C"
+    language_code: "en-US"
+    gender: "FEMALE"
+    description: "Neural2 female voice C (US English)"
+  - name: "en-US-Studio-O"
+    language_code: "en-US"
+    gender: "FEMALE"
+    description: "Studio quality female voice"
+  - name: "en-US-Studio-Q"
+    language_code: "en-US"
+    gender: "MALE"
+    description: "Studio quality male voice"
+  - name: "en-GB-Neural2-B"
+    language_code: "en-GB"
+    gender: "MALE"
+    description: "Neural2 male voice (British English)"
+  - name: "en-GB-Neural2-A"
+    language_code: "en-GB"
+    gender: "FEMALE"
+    description: "Neural2 female voice (British English)"
 
-# Heroku Cloud Settings
-heroku_api_url: "https://readme-ai.herokuapp.com"
-
-# Local TTS configuration
-# Note: Coqui TTS is excluded from container build for smaller image size
-# Set enabled: true only for local development with TTS package installed
+# Local TTS configuration (used by backend)
+# Maps to tts section above for compatibility
 local_tts:
-  enabled: false
-  provider: "coqui"
-  model_name: "tts_models/en/vctk/vits"
-  default_voice: "coqui_en"
-  speaker_id: "p273"
-  language: "en"
-  use_gpu: false
-  progress_bar: false
+  enabled: true
+  provider: "google"
+  default_voice: "en-US-Neural2-D"
+  audio_encoding: "MP3"
+  speaking_rate: 1.0
 
 # Cache Settings
 cache_dir: "./cache"
@@ -52,7 +59,7 @@ cache_max_size_mb: 1000
 auto_clear_cache: false
 
 # Library Settings
-library_path: "/Volumes/Rich 3TB/books"  # Set to your local library folder (e.g., "/path/to/books")
+library_path: "/Volumes/Rich 3TB/books"  # Set to your local library folder
 
 # Database
 database_path: "./db/readme.db"
@@ -67,13 +74,13 @@ playback:
   increment_interval_minutes: 15
   max_speed: 2.5
 
-# Session behavior (Phase 8: single-book lock)
+# Session behavior
 session:
   single_book_mode: true
-  auto_finish_threshold: 0.95  # 95% completion unlocks automatically (future use)
+  auto_finish_threshold: 0.95
 
 # UI Settings
-theme: "light"  # "light" or "dark"
+theme: "light"
 sidebar_width: 300
 
 ui:
@@ -83,31 +90,30 @@ ui:
 
 # API Settings
 local_api_port: 5000
-local_api_host: "0.0.0.0"  # Bind to all interfaces (required for container)
+local_api_host: "0.0.0.0"
 
 # Feature Flags
 features:
-  summarization: true
+  summarization: false   # Explicitly excluded
   local_tts: true
   annotations: true
   bookmarks: true
-  export_audio: false  # Planned (not implemented)
+  export_audio: false
 
-
-# Phase 3: Content Filtering Settings
+# Content Filtering Settings
 content_filtering:
   skip_frontmatter: true
   skip_page_numbers: true
   skip_footnotes: true
   skip_headers_footers: true
-  frontmatter_skip_percent: 0.05  # Fallback: skip first 5% if no chapter markers
-  repeat_threshold: 3  # Lines appearing more than this are considered headers/footers
+  frontmatter_skip_percent: 0.05
+  repeat_threshold: 3
 
 # PDF-specific filtering (position-aware)
 pdf_filtering:
-  header_zone_percent: 0.10    # Top 10% of page
-  footer_zone_percent: 0.10    # Bottom 10% of page
-  min_body_font_size: 9        # Fonts smaller than this in footer = footnotes
+  header_zone_percent: 0.10
+  footer_zone_percent: 0.10
+  min_body_font_size: 9
   detect_repeated_headers: true
 
 # Annotation settings

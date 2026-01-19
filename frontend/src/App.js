@@ -89,7 +89,7 @@ function App() {
       const res = await fetch(`${API_BASE}/api/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: "coqui_en", mode: "local" }),
+        body: JSON.stringify({ text, voice: "en-US-Neural2-D" }),
       });
       if (!res.ok) {
         console.error("TTS generation failed");

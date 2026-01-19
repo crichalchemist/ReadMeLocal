@@ -156,6 +156,20 @@ class PlaybackState(Base):
     sentence_durations_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # list[float] JSON
 
 
+class Annotation(Base):
+    """Phase 2: Paragraph-level annotations for PDF filtering and note-taking."""
+    __tablename__ = "annotations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    book_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    paragraph_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    section_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    source_text: Mapped[str] = mapped_column(Text, nullable=False)
+    note_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
@@ -262,6 +276,31 @@ class TtsResponse(BaseModel):
     sample_rate: Optional[int] = None
     audio_path: Optional[str] = None  # local server streaming path
     download_path: Optional[str] = None  # direct download endpoint
+
+
+# Annotation schemas (Phase 2: PDF Filtering & Annotations)
+class AnnotationCreate(BaseModel):
+    book_id: str
+    paragraph_index: int
+    section_title: Optional[str] = None
+    source_text: str
+    note_text: str
+
+
+class AnnotationResponse(BaseModel):
+    id: int
+    book_id: str
+    paragraph_index: int
+    section_title: Optional[str]
+    source_text: str
+    note_text: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class AnnotationListResponse(BaseModel):
+    annotations: List[AnnotationResponse]
+    total: int
 
 
 # ------------------------------------------------------------

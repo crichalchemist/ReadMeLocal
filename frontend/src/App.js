@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { baseMsForWpm, tokenDelayMs } from "./rsvp/timing";
 
@@ -21,10 +21,17 @@ function App() {
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [ttsLoading, setTtsLoading] = useState(false);
   const [currentParagraphAudio, setCurrentParagraphAudio] = useState(null);
+  const [showAnnotationModal, setShowAnnotationModal] = useState(false);
+  const [annotationText, setAnnotationText] = useState("");
+  const [annotations, setAnnotations] = useState([]);
+  const [pauseTime, setPauseTime] = useState(null);
+  const [pausedParagraphIndex, setPausedParagraphIndex] = useState(null);
   const nextAtRef = useRef(0);
   const audioRef = useRef(null);
   const ttsAbortRef = useRef(null);
   const prevParagraphRef = useRef(0);
+
+  const REWIND_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
   const loadLibrary = () => {
     fetch(`${API_BASE}/api/library`)
@@ -99,6 +106,69 @@ function App() {
     }
   };
 
+  // Load annotations when book changes
+  useEffect(() => {
+    if (book?.id) {
+      fetch(`${API_BASE}/api/annotations/${book.id}`)
+        .then((res) => res.json())
+        .then((data) => setAnnotations(data.annotations || []))
+        .catch(() => setAnnotations([]));
+    }
+  }, [book?.id]);
+
+  const handleCloseAnnotationModal = useCallback(() => {
+    setShowAnnotationModal(false);
+    setAnnotationText("");
+
+    // Check if we need to rewind (paused > 5 minutes)
+    if (pauseTime && Date.now() - pauseTime >= REWIND_THRESHOLD_MS) {
+      // Rewind to start of the paused paragraph
+      const paragraphStartIndex = tokens.findIndex(
+        (t) => t.paragraph_index === pausedParagraphIndex
+      );
+      if (paragraphStartIndex >= 0) {
+        setIndex(paragraphStartIndex);
+      }
+    }
+
+    setPauseTime(null);
+    setPausedParagraphIndex(null);
+  }, [pauseTime, tokens, pausedParagraphIndex]);
+
+  const handleSaveAnnotation = useCallback(async () => {
+    if (!annotationText.trim() || !book) return;
+
+    const currentParagraph = paragraphs[currentParagraphIndex] || "";
+
+    try {
+      const response = await fetch(`${API_BASE}/api/annotations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          book_id: book.id,
+          paragraph_index: currentParagraphIndex,
+          section_title: null,
+          source_text: currentParagraph,
+          note_text: annotationText.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        const newAnnotation = await response.json();
+        setAnnotations((prev) => [...prev, newAnnotation]);
+      }
+    } catch (err) {
+      console.error("Failed to save annotation:", err);
+    }
+
+    handleCloseAnnotationModal();
+  }, [annotationText, book, currentParagraphIndex, paragraphs, handleCloseAnnotationModal]);
+
+  const handleExportAnnotations = useCallback(() => {
+    if (!book?.id) return;
+    window.open(`${API_BASE}/api/annotations/${book.id}/export`, "_blank");
+  }, [book]);
+
   // Handle paragraph transitions for TTS
   useEffect(() => {
     if (!playing || !ttsEnabled) return;
@@ -118,6 +188,37 @@ function App() {
       loadNextAudio();
     }
   }, [currentParagraphIndex, playing, ttsEnabled, paragraphs]);
+
+  // Keyboard handler for annotations
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // 'N' to open annotation modal (when playing or paused with a book loaded)
+      if (e.key === "n" || e.key === "N") {
+        if (book && !showAnnotationModal) {
+          e.preventDefault();
+          setPauseTime(Date.now());
+          setPausedParagraphIndex(currentParagraphIndex);
+          setPlaying(false);
+          setShowAnnotationModal(true);
+        }
+      }
+
+      // Escape to close modal
+      if (e.key === "Escape" && showAnnotationModal) {
+        e.preventDefault();
+        handleCloseAnnotationModal();
+      }
+
+      // Cmd/Ctrl + Enter to save annotation
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && showAnnotationModal) {
+        e.preventDefault();
+        handleSaveAnnotation();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [book, showAnnotationModal, currentParagraphIndex, playing, handleCloseAnnotationModal, handleSaveAnnotation]);
 
   useEffect(() => {
     if (!playing || tokens.length === 0) return;
@@ -309,6 +410,11 @@ function App() {
                 onChange={handleWpmChange}
               />
             </label>
+            {annotations.length > 0 && (
+              <button onClick={handleExportAnnotations} className="export-btn">
+                Export Notes ({annotations.length})
+              </button>
+            )}
           </div>
         </header>
         <section className="rsvp">
@@ -328,6 +434,35 @@ function App() {
           ))}
         </section>
       </main>
+
+      {/* Annotation Modal */}
+      {showAnnotationModal && (
+        <div className="annotation-modal-overlay">
+          <div className="annotation-modal">
+            <h3>Add Note</h3>
+            <div className="annotation-context">
+              <strong>Current paragraph:</strong>
+              <p className="annotation-source">
+                {paragraphs[currentParagraphIndex]?.substring(0, 200)}
+                {paragraphs[currentParagraphIndex]?.length > 200 ? "..." : ""}
+              </p>
+            </div>
+            <textarea
+              className="annotation-input"
+              placeholder="Type your note here..."
+              value={annotationText}
+              onChange={(e) => setAnnotationText(e.target.value)}
+              autoFocus
+            />
+            <div className="annotation-buttons">
+              <button onClick={handleCloseAnnotationModal}>Cancel (Esc)</button>
+              <button onClick={handleSaveAnnotation} className="primary">
+                Save (Cmd+Enter)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

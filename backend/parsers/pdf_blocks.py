@@ -104,3 +104,25 @@ class PDFBlockExtractor:
 
         doc.close()
         return blocks
+
+    def find_repeated_headers(self, blocks: List[TextBlock], threshold: int = 3) -> set:
+        """Find text that appears repeatedly at similar Y positions (likely headers/footers)."""
+        from collections import defaultdict
+        import re
+
+        # Group by normalized text
+        text_positions: defaultdict = defaultdict(list)
+        for block in blocks:
+            normalized = re.sub(r"\s+", " ", block.text.strip().lower())
+            if len(normalized) > 80:  # Skip long content
+                continue
+            text_positions[normalized].append((block.y0, block.page_num))
+
+        # Find text appearing on multiple pages at similar positions
+        repeated = set()
+        for text, positions in text_positions.items():
+            unique_pages = len(set(p[1] for p in positions))
+            if unique_pages >= threshold:
+                repeated.add(text)
+
+        return repeated

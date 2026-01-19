@@ -44,3 +44,17 @@ def test_classify_body_zone():
         font_size=12
     )
     assert extractor.classify_zone(block) == "body"
+
+
+def test_detect_repeated_headers():
+    """Text appearing at same Y position across multiple pages = header."""
+    extractor = PDFBlockExtractor()
+    blocks = [
+        TextBlock(text="Book Title", x0=100, y0=50, x1=300, y1=70, page_height=800, font_size=12, page_num=0),
+        TextBlock(text="Book Title", x0=100, y0=50, x1=300, y1=70, page_height=800, font_size=12, page_num=1),
+        TextBlock(text="Book Title", x0=100, y0=50, x1=300, y1=70, page_height=800, font_size=12, page_num=2),
+        TextBlock(text="Unique content", x0=100, y0=200, x1=500, y1=220, page_height=800, font_size=12, page_num=0),
+    ]
+    repeated = extractor.find_repeated_headers(blocks, threshold=3)
+    assert "book title" in repeated  # Normalized lowercase
+    assert "unique content" not in repeated

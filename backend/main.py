@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import DateTime, Float, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, PlainTextResponse
 
 # ------------------------------------------------------------
 # Config
@@ -961,6 +961,86 @@ async def get_settings():
             "provider": LOCAL_TTS_CFG.get("provider", "coqui"),
         },
     }
+
+
+# ------------------------------------------------------------
+# Annotation endpoints
+# ------------------------------------------------------------
+
+@app.post("/api/annotations", response_model=AnnotationResponse)
+async def create_annotation(req: AnnotationCreate, db: Session = Depends(get_db)):
+    """Create a new annotation for a paragraph."""
+    now = datetime.now(timezone.utc)
+    annotation = Annotation(
+        book_id=req.book_id,
+        paragraph_index=req.paragraph_index,
+        section_title=req.section_title,
+        source_text=req.source_text,
+        note_text=req.note_text,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(annotation)
+    db.commit()
+    db.refresh(annotation)
+    return annotation
+
+
+@app.get("/api/annotations/{book_id}", response_model=AnnotationListResponse)
+async def list_annotations(book_id: str, db: Session = Depends(get_db)):
+    """List all annotations for a book."""
+    from sqlalchemy import select
+    stmt = select(Annotation).where(Annotation.book_id == book_id).order_by(Annotation.paragraph_index)
+    annotations = db.execute(stmt).scalars().all()
+    return {"annotations": annotations, "total": len(annotations)}
+
+
+@app.delete("/api/annotations/{annotation_id}")
+async def delete_annotation(annotation_id: int, db: Session = Depends(get_db)):
+    """Delete an annotation by ID."""
+    annotation = db.get(Annotation, annotation_id)
+    if annotation is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    db.delete(annotation)
+    db.commit()
+    return {"status": "deleted", "id": annotation_id}
+
+
+@app.get("/api/annotations/{book_id}/export")
+async def export_annotations(book_id: str, db: Session = Depends(get_db)):
+    """Export annotations as TXT file."""
+    from sqlalchemy import select
+    stmt = select(Annotation).where(Annotation.book_id == book_id).order_by(Annotation.paragraph_index)
+    annotations = db.execute(stmt).scalars().all()
+
+    if not annotations:
+        raise HTTPException(status_code=404, detail="No annotations found for this book")
+
+    lines = [
+        "=" * 40,
+        f"ANNOTATIONS: {book_id}",
+        f"Exported: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+        f"Total notes: {len(annotations)}",
+        "=" * 40,
+        "",
+    ]
+
+    for ann in annotations:
+        section = ann.section_title or f"Paragraph {ann.paragraph_index}"
+        lines.extend([
+            f"--- {section}, Paragraph {ann.paragraph_index} ---",
+            "SOURCE:",
+            f'"{ann.source_text}"',
+            "",
+            "NOTE:",
+            ann.note_text,
+            "",
+            "-" * 40,
+            "",
+        ])
+
+    content = "\n".join(lines)
+    return PlainTextResponse(content, media_type="text/plain; charset=utf-8")
 
 
 if __name__ == "__main__":

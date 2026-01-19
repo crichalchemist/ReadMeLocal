@@ -104,4 +104,15 @@ temp/
 *.rpm
 *.exe
 *.msi
-!/PRD_ “ReadMe” — Local AI Reading Assistant.pdf
+!/PRD_ "ReadMe" — Local AI Reading Assistant.pdf
+
+# Internal development docs (kept locally, not public)
+docs/plans/*-implementation.md
+CHECKPOINT_1.md
+revisedplan.md
+AGENTS.md
+.junie/
+
+# Skill cache files
+token-saver-skill/
+*.skill

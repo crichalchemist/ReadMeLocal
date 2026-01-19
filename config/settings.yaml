@@ -34,8 +34,10 @@ voices:
 heroku_api_url: "https://readme-ai.herokuapp.com"
 
 # Local TTS configuration
+# Note: Coqui TTS is excluded from container build for smaller image size
+# Set enabled: true only for local development with TTS package installed
 local_tts:
-  enabled: true
+  enabled: false
   provider: "coqui"
   model_name: "tts_models/en/vctk/vits"
   default_voice: "coqui_en"
@@ -81,7 +83,7 @@ ui:
 
 # API Settings
 local_api_port: 5000
-local_api_host: "127.0.0.1"
+local_api_host: "0.0.0.0"  # Bind to all interfaces (required for container)
 
 # Feature Flags
 features:

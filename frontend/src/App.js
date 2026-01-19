@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { baseMsForWpm, tokenDelayMs } from "./rsvp/timing";
 
-const API_BASE = "http://localhost:5000";
+// API base: empty for production (same origin via nginx), localhost for dev
+const API_BASE = process.env.NODE_ENV === "production" ? "" : "http://localhost:5000";
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 

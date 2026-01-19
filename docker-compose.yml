@@ -1,0 +1,37 @@
+# ReadMeLocal Docker Compose
+# Usage:
+#   colima start              # Ensure Docker runtime is running
+#   docker compose up -d      # Start in background
+#   docker compose logs -f    # View logs
+#   docker compose down       # Stop
+
+services:
+  readmelocal:
+    build: .
+    container_name: readmelocal
+    ports:
+      - "5000:5000"
+    volumes:
+      # Persist database across restarts
+      - ./db:/app/db
+      # Persist audio cache
+      - ./cache:/app/cache
+      # Config and secrets (read-only recommended)
+      - ./config:/app/config:ro
+      # Mount your book library (read-only)
+      # NOTE: Colima VZ driver only mounts $HOME by default.
+      # External volumes like /Volumes/... don't work reliably.
+      # Use ~/ReadMeBooks and sync with: rsync -av "/Volumes/Rich 3TB/books/" ~/ReadMeBooks/
+      - ~/ReadMeBooks:/library:ro
+    environment:
+      - README_LIBRARY_PATH=/library
+      # Uncomment and set if using cloud TTS:
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - HEROKU_API_KEY=${HEROKU_API_KEY}
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

@@ -1,0 +1,69 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+.venv
+venv
+*.egg-info
+.eggs
+*.egg
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Node
+node_modules
+frontend/node_modules
+npm-debug.log*
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Build artifacts (we build in container)
+frontend/build
+dist
+build
+
+# Local development
+.env
+*.env
+secrets.env
+config/secrets.env
+
+# Database and cache (mounted as volumes)
+db/
+cache/
+
+# Documentation and misc
+*.md
+!README.md
+docs/
+*.pdf
+.worktrees
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Testing
+coverage/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

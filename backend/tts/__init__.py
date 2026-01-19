@@ -1,9 +1,4 @@
-"""
-Local TTS helpers.
-"""
+"""TTS service module."""
+from backend.tts.google_tts import synthesize_speech, get_cache_key
 
-from __future__ import annotations
-
-__all__ = [
-    "coqui",
-]
+__all__ = ["synthesize_speech", "get_cache_key"]

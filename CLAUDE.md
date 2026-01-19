@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ReadMe Local is a self-hosted desktop application that converts digital books (PDF, EPUB, TXT, DOCX) into natural-sounding speech with RSVP (Rapid Serial Visual Presentation) reading. Built with Electron + React (frontend) and FastAPI (backend), it prioritizes privacy through a local-first architecture.
+ReadMe Local is a self-hosted desktop application that converts digital books (PDF, EPUB, TXT, DOCX) into natural-sounding speech with RSVP (Rapid Serial Visual Presentation) reading, supported by a comprehensive annotation system. Built with Electron + React (frontend) and FastAPI (backend), it prioritizes privacy through a local-first architecture with Google Cloud Text-to-Speech integration.
 
 ## Development Commands
 
@@ -48,21 +48,23 @@ React UI (App.js) ←→ FastAPI backend (main.py)
 ```
 
 **Key data flow:**
-1. Documents parsed by backend (`backend/parsers/`)
+1. Documents parsed by backend (`backend/parsers/`) with position-aware filtering
 2. Content tokenized for RSVP (`backend/rsvp_tokens.py`)
 3. React renders word-by-word with timing (`frontend/src/rsvp/timing.js`)
-4. TTS optional: local Coqui or cloud OpenAI
+4. TTS via Google Cloud Text-to-Speech with configurable voices and playback speeds
+5. User annotations stored and exported via dedicated API endpoints
 
 ### Core Modules
 
 | Module | Purpose |
 |--------|---------|
 | `backend/main.py` | FastAPI app, all API endpoints, DB models |
-| `backend/parsers/*.py` | Document extraction (PDF, EPUB, DOCX) |
+| `backend/parsers/*.py` | Document extraction (PDF, EPUB, DOCX, TXT) with position-aware filtering |
 | `backend/rsvp_tokens.py` | Tokenization with punctuation metadata |
-| `backend/content_filter.py` | Skip frontmatter, page numbers, footnotes |
+| `backend/content_filter.py` | Skip frontmatter, page numbers, footnotes (position-aware for PDFs) |
 | `frontend/src/App.js` | Main React component, RSVP playback loop |
 | `frontend/src/rsvp/timing.js` | WPM calculations, punctuation pauses |
+| `frontend/src/components/AnnotationModal.js` | Annotation UI with keyboard shortcuts |
 | `frontend/electron/main.js` | Electron process, Python subprocess mgmt |
 
 ### Pluggable Parser Registry
@@ -71,14 +73,34 @@ PARSER_REGISTRY = {
     ".pdf": ("backend.parsers.pdf_parser", "PDFParser", "pdf"),
     ".epub": ("backend.parsers.epub_parser", "EPUBParser", "epub"),
     ".docx": ("backend.parsers.docx_parser", "DOCXParser", "docx"),
+    ".txt": ("backend.parsers.text_parser", "TextParser", "txt"),
 }
 ```
 
 ## Configuration
 
-- `config/settings.yaml` - App settings (TTS mode, voices, filtering, playback speeds)
-- `config/secrets.env` - API keys (copy from `secrets.env.template`, git-ignored)
+- `config/settings.yaml` - App settings (voices, filtering, playback speeds)
+- `config/secrets.env` - Google Cloud TTS credentials (copy from `secrets.env.template`, git-ignored)
+  - `GOOGLE_APPLICATION_CREDENTIALS` - Path to Google Cloud service account JSON file
 - `library_path` in settings.yaml - Points to local books folder
+
+## Text-to-Speech
+
+ReadMe Local uses **Google Cloud Text-to-Speech** exclusively for high-quality natural-sounding audio synthesis. Configuration requires:
+
+1. Google Cloud service account JSON credentials file
+2. `GOOGLE_APPLICATION_CREDENTIALS` environment variable pointing to the credentials file
+3. Configurable voice selection and playback speeds via settings.yaml
+
+## Annotation System
+
+The annotation system enables reading notes with keyboard shortcuts:
+
+- **N** - Add new annotation at current position
+- **Esc** - Close annotation modal
+- **Cmd+Enter** (Mac) or **Ctrl+Enter** (Windows/Linux) - Save annotation
+- Annotations are stored in SQLite and can be exported via dedicated API endpoints
+- Component: `frontend/src/components/AnnotationModal.js`
 
 ## Code Style
 

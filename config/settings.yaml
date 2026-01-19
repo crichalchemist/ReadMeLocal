@@ -109,3 +109,7 @@ pdf_filtering:
   footer_zone_percent: 0.10    # Bottom 10% of page
   min_body_font_size: 9        # Fonts smaller than this in footer = footnotes
   detect_repeated_headers: true
+
+# Annotation settings
+annotations:
+  rewind_threshold_minutes: 5

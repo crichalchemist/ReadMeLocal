@@ -58,14 +58,20 @@ class PDFBlockExtractor:
             return "footer"
         return "body"
 
-    def extract_blocks(self, file_path: str) -> List[TextBlock]:
-        """Extract text blocks with coordinates from a PDF file."""
+    def extract_blocks(self, file_path: str) -> tuple[List[TextBlock], int]:
+        """
+        Extract text blocks with coordinates from a PDF file.
+
+        Returns:
+            Tuple of (blocks, page_count) to avoid reopening the file.
+        """
         import fitz  # PyMuPDF
 
         blocks: List[TextBlock] = []
         doc = fitz.open(file_path)
+        page_count = len(doc)
 
-        for page_num in range(len(doc)):
+        for page_num in range(page_count):
             page = doc.load_page(page_num)
             page_height = page.rect.height
 
@@ -103,7 +109,7 @@ class PDFBlockExtractor:
                 ))
 
         doc.close()
-        return blocks
+        return blocks, page_count
 
     def find_repeated_headers(self, blocks: List[TextBlock], threshold: int = 3) -> set:
         """Find text that appears repeatedly at similar Y positions (likely headers/footers)."""

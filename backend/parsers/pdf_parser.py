@@ -27,14 +27,9 @@ class PDFParser:
         try:
             # Extract text using appropriate method
             if self.use_position_filtering:
-                text_content = self._extract_with_position_filtering(file_path)
+                text_content, total_pages = self._extract_with_position_filtering(file_path)
             else:
-                text_content = self._extract_simple(file_path)
-
-            # Get page count for metadata
-            doc = fitz.open(file_path)
-            total_pages = len(doc)
-            doc.close()
+                text_content, total_pages = self._extract_simple(file_path)
 
             # Apply content filtering
             filtered_text = self.content_filter.filter_text(text_content)
@@ -53,25 +48,34 @@ class PDFParser:
         except Exception as e:
             raise Exception(f"Failed to parse PDF: {str(e)}")
 
-    def _extract_simple(self, file_path: str) -> str:
-        """Extract text without position filtering (original method)."""
+    def _extract_simple(self, file_path: str) -> tuple[str, int]:
+        """
+        Extract text without position filtering (original method).
+
+        Returns:
+            Tuple of (text_content, page_count).
+        """
         doc = fitz.open(file_path)
         text_content = ""
+        page_count = len(doc)
 
-        for page_num in range(len(doc)):
+        for page_num in range(page_count):
             page = doc.load_page(page_num)
             page_text = page.get_text()
             text_content += page_text + "\n"
 
         doc.close()
-        return text_content
+        return text_content, page_count
 
-    def _extract_with_position_filtering(self, file_path: str) -> str:
+    def _extract_with_position_filtering(self, file_path: str) -> tuple[str, int]:
         """
         Extract text with position-aware filtering.
         Filters out header/footer zones and repeated text.
+
+        Returns:
+            Tuple of (text_content, page_count).
         """
-        blocks = self.block_extractor.extract_blocks(file_path)
+        blocks, page_count = self.block_extractor.extract_blocks(file_path)
 
         # Find repeated headers/footers
         repeated_text = self.block_extractor.find_repeated_headers(blocks)
@@ -94,7 +98,7 @@ class PDFParser:
 
         # Combine filtered blocks into text
         text_parts = [block.text for block in filtered_blocks]
-        return "\n".join(text_parts)
+        return "\n".join(text_parts), page_count
 
     def _extract_title(self, file_path: str, text_content: str) -> str:
         """Extract title from PDF metadata or first meaningful line."""
